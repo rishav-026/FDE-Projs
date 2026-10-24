@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Gemini Agent</title>
+  <style>
+    body { font-family: sans-serif; background: #121826; color: #fff; margin: 0; padding: 20px; }
+    .container { max-width: 700px; margin: 0 auto; display: flex; flex-direction: column; height: 90vh; }
+    .box { flex: 1; overflow-y: auto; background: #1f2937; border-radius: 8px; padding: 15px; display: flex; flex-direction: column; gap: 10px; }
+    .bubble { max-width: 80%; padding: 10px 14px; border-radius: 6px; white-space: pre-wrap; font-size: 15px; }
+    .user { align-self: flex-end; background: #2563eb; }
+    .model { align-self: flex-start; background: #374151; }
+    .status { font-size: 12px; color: #9ca3af; font-style: italic; }
+    .input-row { display: flex; gap: 8px; margin-top: 10px; }
+    input { flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #4b5563; background: #1f2937; color: #fff; }
+    button { padding: 10px 20px; border: none; border-radius: 6px; background: #2563eb; color: #fff; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h3>Project 1: Gemini Streaming Agent with Tools</h3>
+    <div class="box" id="chatBox"></div>
+    <div class="input-row">
+      <input type="text" id="userInput" placeholder="Ask math, create a file, etc..." onkeydown="if(event.key==='Enter') send()">
+      <button onclick="send()">Send</button>
+    </div>
+  </div>
+
+  <script>
+    const sessionId = "session_" + Math.random().toString(36).substring(2, 8);
+    const chatBox = document.getElementById("chatBox");
+    const userInput = document.getElementById("userInput");
+
+    async function send() {
+      const text = userInput.value.trim();
+      if (!text) return;
+      userInput.value = "";
+
+      // Add user bubble
+      addBubble(text, "user");
+
+      // Add empty model bubble
+      const modelBubble = addBubble("", "model");
+
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId, message: text })
+      });
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop();
+
+        for (const part of parts) {
+          if (part.startsWith("data: ")) {
+            const data = JSON.parse(part.slice(6));
+            if (data.type === "token") {
+              modelBubble.textContent += data.content;
+              chatBox.scrollTop = chatBox.scrollHeight;
+            } else if (data.type === "status") {
+              const statusEl = document.createElement("div");
+              statusEl.className = "status";
+              statusEl.innerText = "[Tool] " + data.content;
+              chatBox.insertBefore(statusEl, modelBubble);
+            }
+          }
+        }
+      }
+    }
+
+    function addBubble(text, role) {
+      const el = document.createElement("div");
+      el.className = `bubble ${role}`;
+      el.textContent = text;
+      chatBox.appendChild(el);
+      chatBox.scrollTop = chatBox.scrollHeight;
+      return el;
+    }
+  </script>
+</body>
+</html>
